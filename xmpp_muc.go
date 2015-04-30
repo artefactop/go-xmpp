@@ -19,7 +19,7 @@ const (
 // xep-0045 7.2
 func (c *Client) JoinMUC(jid, nick string) {
 	if nick == "" {
-		nick = c.jid
+		nick = c.Jid
 	}
 	fmt.Fprintf(c.conn, "<presence to='%s/%s'>\n"+
 		"<x xmlns='%s' />\n"+
@@ -30,7 +30,7 @@ func (c *Client) JoinMUC(jid, nick string) {
 // xep-0045 7.2.6
 func (c *Client) JoinProtectedMUC(jid, nick string, password string) {
 	if nick == "" {
-		nick = c.jid
+		nick = c.Jid
 	}
 	fmt.Fprintf(c.conn, "<presence to='%s/%s'>\n"+
 		"<x xmlns='%s'>\n"+
@@ -43,5 +43,5 @@ func (c *Client) JoinProtectedMUC(jid, nick string, password string) {
 // xep-0045 7.14
 func (c *Client) LeaveMUC(jid string) {
 	fmt.Fprintf(c.conn, "<presence from='%s' to='%s' type='unavailable' />",
-		c.jid, xmlEscape(jid))
+		c.Jid, xmlEscape(jid))
 }

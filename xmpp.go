@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	math_rand "math/rand"
 	"net"
 	"net/http"
 	"net/url"
@@ -44,6 +45,9 @@ const (
 // Default TLS configuration options
 var DefaultConfig tls.Config
 
+// Used for generate random id
+var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+
 // Cookie is a unique XMPP session identifier
 type Cookie uint64
 
@@ -58,8 +62,8 @@ func getCookie() Cookie {
 // Client holds XMPP connection opitons
 type Client struct {
 	conn   net.Conn // connection to server
-	jid    string   // Jabber ID for our connection
-	domain string
+	Jid    string   // Jabber ID for our connection
+	Domain string
 	p      *xml.Decoder
 }
 
@@ -401,14 +405,14 @@ func (c *Client) init(o *Options) error {
 	} else {
 		fmt.Fprintf(c.conn, "<iq type='set' id='%x'><bind xmlns='%s'><resource>%s</resource></bind></iq>\n", cookie, nsBind, o.Resource)
 	}
-	var iq clientIQ
+	var iq ClientIQ
 	if err = c.p.DecodeElement(&iq, nil); err != nil {
 		return errors.New("unmarshal <iq>: " + err.Error())
 	}
 	if &iq.Bind == nil {
 		return errors.New("<iq> result missing <bind>")
 	}
-	c.jid = iq.Bind.Jid // our local id
+	c.Jid = iq.Bind.Jid // our local id
 
 	if o.Session {
 		//if server support session, open it
@@ -542,16 +546,22 @@ func (c *Client) Recv() (stanza interface{}, err error) {
 			return Chat{}, err
 		}
 		switch v := val.(type) {
-		case *clientMessage:
-			return Chat{Remote: v.From, Type: v.Type, Text: v.Body, Other: v.Other}, nil
+		case *ClientMessage:
+			//fmt.Println("Is Message")
+			return v, nil
+		case *ClientIQ:
+			//fmt.Println("Is ClientIQ")
+			return v, nil
 		case *clientQuery:
+			//fmt.Println("Is clientQuery")
 			var r Roster
 			for _, item := range v.Item {
 				r = append(r, Contact{item.Jid, item.Name, item.Group})
 			}
 			return Chat{Type: "roster", Roster: r}, nil
-		case *clientPresence:
-			return Presence{v.From, v.To, v.Type, v.Show}, nil
+		case *ClientPresence:
+			//fmt.Println("Is Presence")
+			return v, nil
 		}
 	}
 	panic("unreachable")
@@ -561,6 +571,39 @@ func (c *Client) Recv() (stanza interface{}, err error) {
 func (c *Client) Send(chat Chat) (n int, err error) {
 	return fmt.Fprintf(c.conn, "<message to='%s' type='%s' xml:lang='en'>"+"<body>%s</body></message>",
 		xmlEscape(chat.Remote), xmlEscape(chat.Type), xmlEscape(chat.Text))
+}
+
+// SendStanza add default values if not setted
+func (c *Client) SendStanza(stanza interface{}) (n int, err error) {
+	switch v := stanza.(type) {
+	case *ClientMessage:
+		v.From = c.Jid
+		if v.ID == "" {
+			v.ID = GenRandomId()
+		}
+		return c.send(stanza)
+	}
+	return c.send(stanza)
+}
+
+func randSeq(n int) string {
+	b := make([]rune, n)
+	for i := range b {
+		b[i] = letters[math_rand.Intn(len(letters))]
+	}
+	return string(b)
+}
+func GenRandomId() string {
+	return randSeq(6)
+}
+
+// send marshal xml and send stanza
+func (c *Client) send(stanza interface{}) (n int, err error) {
+	m, err := xml.Marshal(stanza)
+	if err != nil {
+		return 0, err
+	}
+	return fmt.Fprint(c.conn, string(m))
 }
 
 // SendOrg sends the original text without being wrapped in an XMPP message stanza.
@@ -578,7 +621,7 @@ func (c *Client) SendHtml(chat Chat) (n int, err error) {
 
 // Roster asks for the chat roster.
 func (c *Client) Roster() error {
-	fmt.Fprintf(c.conn, "<iq from='%s' type='get' id='roster1'><query xmlns='jabber:iq:roster'/></iq>\n", xmlEscape(c.jid))
+	fmt.Fprintf(c.conn, "<iq from='%s' type='get' id='roster1'><query xmlns='jabber:iq:roster'/></iq>\n", xmlEscape(c.Jid))
 	return nil
 }
 
@@ -649,7 +692,7 @@ type bindBind struct {
 }
 
 // RFC 3921  B.1  jabber:client
-type clientMessage struct {
+type ClientMessage struct {
 	XMLName xml.Name `xml:"jabber:client message"`
 	From    string   `xml:"from,attr"`
 	ID      string   `xml:"id,attr"`
@@ -657,9 +700,15 @@ type clientMessage struct {
 	Type    string   `xml:"type,attr"` // chat, error, groupchat, headline, or normal
 
 	// These should technically be []clientText, but string is much more convenient.
-	Subject string `xml:"subject"`
-	Body    string `xml:"body"`
-	Thread  string `xml:"thread"`
+	Subject string `xml:"subject,omitempty"`
+	Body    string `xml:"body,omitempty"`
+	Thread  string `xml:"thread,omitempty"`
+
+	// XEP-0313
+	Archived *MamMessageArchived
+	Fin      *MamMessageFin //version3
+
+	Error *ClientError
 
 	// Any hasn't matched element
 	Other []string `xml:",any"`
@@ -670,7 +719,7 @@ type clientText struct {
 	Body string `xml:"chardata"`
 }
 
-type clientPresence struct {
+type ClientPresence struct {
 	XMLName xml.Name `xml:"jabber:client presence"`
 	From    string   `xml:"from,attr"`
 	ID      string   `xml:"id,attr"`
@@ -678,28 +727,57 @@ type clientPresence struct {
 	Type    string   `xml:"type,attr"` // error, probe, subscribe, subscribed, unavailable, unsubscribe, unsubscribed
 	Lang    string   `xml:"lang,attr"`
 
-	Show     string `xml:"show"`        // away, chat, dnd, xa
-	Status   string `xml:"status,attr"` // sb []clientText
-	Priority string `xml:"priority,attr"`
-	Error    *clientError
+	Show     string       `xml:"show,omitempty"`        // away, chat, dnd, xa
+	Status   string       `xml:"status,attr,omitempty"` // sb []clientText
+	Priority string       `xml:"priority,attr"`
+	Error    *ClientError `xml:",omitempty"`
 }
 
-type clientIQ struct { // info/query
-	XMLName xml.Name `xml:"jabber:client iq"`
-	From    string   `xml:",attr"`
-	ID      string   `xml:",attr"`
-	To      string   `xml:",attr"`
-	Type    string   `xml:",attr"` // error, get, result, set
-	Error   clientError
-	Bind    bindBind
+type ClientIQ struct { // info/query
+	XMLName xml.Name     `xml:"jabber:client iq"`
+	From    string       `xml:"from,attr"`
+	ID      string       `xml:"id,attr"`
+	To      string       `xml:"to,attr,omitempty"`
+	Type    string       `xml:"type,attr"` // error, get, result, set
+	Error   *ClientError `xml:",omitempty"`
+	Bind    *bindBind    `xml:",omitempty"`
+
+	//XEP-0016
+	Privacy *ClientPrivacy `xml:",omitempty"`
+
+	//XEP-0313
+	QueryMam *MamQueryArchive `xml:",omitempty"`
+
+	Other []xml.Name `xml:",omitempty"`
 }
 
-type clientError struct {
-	XMLName xml.Name `xml:"jabber:client error"`
-	Code    string   `xml:",attr"`
-	Type    string   `xml:",attr"`
-	Any     xml.Name
-	Text    string
+type ClientError struct {
+	XMLName xml.Name `xml:"error"`
+	Code    string   `xml:"code,attr"`
+	Type    string   `xml:"type,attr"`
+	ErrorSU *ServiceUnavailableError
+	ErrorNF *NotFoundError
+	ErrorPV *PolicyViolationError
+}
+
+type ServiceUnavailableError struct {
+	XMLName xml.Name `xml:"urn:ietf:params:xml:ns:xmpp-stanzas service-unavailable"`
+	Text    *ErrorText
+}
+
+type NotFoundError struct {
+	XMLName xml.Name `xml:"urn:ietf:params:xml:ns:xmpp-stanzas not-found"`
+	Text    *ErrorText
+}
+
+type PolicyViolationError struct {
+	XMLName xml.Name `xml:"urn:ietf:params:xml:ns:xmpp-stanzas policy-violation"`
+	Text    *ErrorText
+}
+
+type ErrorText struct {
+	XMLName xml.Name `xml:"urn:ietf:params:xml:ns:xmpp-stanzas text"`
+	Value   string   `xml:",chardata"`
 }
 
 type clientQuery struct {
@@ -767,13 +845,13 @@ func next(p *xml.Decoder) (xml.Name, interface{}, error) {
 	case nsBind + " bind":
 		nv = &bindBind{}
 	case nsClient + " message":
-		nv = &clientMessage{}
+		nv = &ClientMessage{}
 	case nsClient + " presence":
-		nv = &clientPresence{}
+		nv = &ClientPresence{}
 	case nsClient + " iq":
-		nv = &clientIQ{}
+		nv = &ClientIQ{}
 	case nsClient + " error":
-		nv = &clientError{}
+		nv = &ClientError{}
 	default:
 		return xml.Name{}, nil, errors.New("unexpected XMPP message " +
 			se.Name.Space + " <" + se.Name.Local + "/>")
