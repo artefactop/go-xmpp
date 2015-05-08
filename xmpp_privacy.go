@@ -11,13 +11,25 @@ const (
 
 type ClientPrivacy struct {
 	XMLName xml.Name `xml:"jabber:iq:privacy query"`
-	List    *ClientPrivacyList
+	Active  *ClientPrivacyActive
+	Default *ClientPrivacyDefault
+	List    []ClientPrivacyList `xml:"list"`
+}
+
+type ClientPrivacyActive struct {
+	XMLName xml.Name `xml:"active"`
+	Name    string   `xml:"name,attr,omitempty"`
+}
+
+type ClientPrivacyDefault struct {
+	XMLName xml.Name `xml:"default"`
+	Name    string   `xml:"name,attr,omitempty"`
 }
 
 type ClientPrivacyList struct {
-	XMLName xml.Name `xml:"list"`
-	Name    string   `xml:"name,attr"`
-	Items   []ClientPrivacyItem
+	XMLName xml.Name            `xml:"list"`
+	Name    string              `xml:"name,attr"`
+	Items   []ClientPrivacyItem `xml:"item"`
 }
 
 type ClientPrivacyItem struct {

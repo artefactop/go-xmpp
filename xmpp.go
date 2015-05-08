@@ -579,7 +579,7 @@ func (c *Client) SendStanza(stanza interface{}) (n int, err error) {
 	case *ClientMessage:
 		v.From = c.Jid
 		if v.ID == "" {
-			v.ID = GenRandomId()
+			v.ID = "go-" + GenRandomId()
 		}
 		return c.send(stanza)
 	}
@@ -594,7 +594,7 @@ func randSeq(n int) string {
 	return string(b)
 }
 func GenRandomId() string {
-	return randSeq(6)
+	return randSeq(10)
 }
 
 // send marshal xml and send stanza
@@ -765,8 +765,18 @@ type ServiceUnavailableError struct {
 	Text    *ErrorText
 }
 
+type BadRequestError struct {
+	XMLName xml.Name `xml:"urn:ietf:params:xml:ns:xmpp-stanzas bad-request"`
+	Text    *ErrorText
+}
+
 type NotFoundError struct {
 	XMLName xml.Name `xml:"urn:ietf:params:xml:ns:xmpp-stanzas not-found"`
+	Text    *ErrorText
+}
+
+type ConfilctError struct {
+	XMLName xml.Name `xml:"urn:ietf:params:xml:ns:xmpp-stanzas conflict"`
 	Text    *ErrorText
 }
 
