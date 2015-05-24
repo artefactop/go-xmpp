@@ -17,31 +17,34 @@ const (
 )
 
 // xep-0045 7.2
-func (c *Client) JoinMUC(jid, nick string) {
+func JoinMUC(c *Client, jid, nick string) {
 	if nick == "" {
 		nick = c.Jid
 	}
-	fmt.Fprintf(c.conn, "<presence to='%s/%s'>\n"+
+	raw := fmt.Sprintf("<presence to='%s/%s'>\n"+
 		"<x xmlns='%s' />\n"+
 		"</presence>",
-		xmlEscape(jid), xmlEscape(nick), nsMUC)
+		XmlEscape(jid), XmlEscape(nick), nsMUC)
+	c.SendRaw(raw)
 }
 
 // xep-0045 7.2.6
-func (c *Client) JoinProtectedMUC(jid, nick string, password string) {
+func JoinProtectedMUC(c *Client, jid, nick string, password string) {
 	if nick == "" {
 		nick = c.Jid
 	}
-	fmt.Fprintf(c.conn, "<presence to='%s/%s'>\n"+
+	raw := fmt.Sprintf("<presence to='%s/%s'>\n"+
 		"<x xmlns='%s'>\n"+
 		"<password>%s</password>\n"+
 		"</x>\n"+
 		"</presence>",
-		xmlEscape(jid), xmlEscape(nick), nsMUC, xmlEscape(password))
+		XmlEscape(jid), XmlEscape(nick), nsMUC, XmlEscape(password))
+	c.SendRaw(raw)
 }
 
 // xep-0045 7.14
-func (c *Client) LeaveMUC(jid string) {
-	fmt.Fprintf(c.conn, "<presence from='%s' to='%s' type='unavailable' />",
-		c.Jid, xmlEscape(jid))
+func LeaveMUC(c *Client, jid string) {
+	raw := fmt.Sprintf("<presence from='%s' to='%s' type='unavailable' />",
+		c.Jid, XmlEscape(jid))
+	c.SendRaw(raw)
 }
